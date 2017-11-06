@@ -436,8 +436,8 @@ long evalCirc8224() { // tuned for g8224 evals
 		for( long igate = 0; igate < fHead.w; igate = igate+8 ) { // index gates on this level
 
 			unsigned char vmchar = 0; // we collect 8 gate-outputs in vmchar, then write to vm
-			pgate8224_t pg8224 = reserveGate8224( ); // prepare to read or write 8 gates
-			uint8_t gtypebyte = 0;
+            pgate8224_t pg8224 = reserveGate8224( ); // prepare to read or write 8 gates
+            uint8_t gtypebyte = 0;
 
 			for( int i=0; i<8; i++ ) {
 
@@ -936,6 +936,7 @@ void createCirc8244() { // creates a bpw file in g8244 format
 				(pg8244->gid)[ 2*i ] = g.in1;
 				(pg8244->gid)[ 2*i + 1 ] = g.in2;
 
+                //Might be bug where 0/2 == 0
 				if( i%2 ) {
 					gtypebyte = (g.gtype & 0xf); // first nibble in LSBs
 				} else {

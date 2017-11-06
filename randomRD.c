@@ -5,10 +5,27 @@
  *      Author: ctho065
  */
 
-#include <immintrin.h>
+
 #include <stdio.h>
 #include <stdint.h>
 #include "randomRd.h"
+// #include <immintrin.h>
+
+
+#ifndef __RDRND__
+#pragma GCC push_options
+#pragma GCC target("rdrnd")
+#endif /* __RDRND__ */
+extern __inline int
+__attribute__((__gnu_inline__, __always_inline__, __artificial__))
+_rdrand64_step (unsigned long long *__P)
+{
+  return __builtin_ia32_rdrand64_step (__P);
+}
+#ifdef __DISABLE_RDRND__
+#undef __DISABLE_RDRND__
+#pragma GCC pop_options
+#endif /* __DISABLE_RDRND__ */
 
 // access the 64-bit hardware RNG in the amd64 architecture
 int randomRD64( unsigned long long *rand64 )

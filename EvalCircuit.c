@@ -56,7 +56,7 @@ int main( int argc, char **argv ) {
 	pArgs.lgw = 8L;
 	fHead.w = (1LL << pArgs.lgw); // width of circuit (currently must be a power of 2)
 
-	pArgs.a = 256L; // number of circuit inputs, currently upper-bounded by its width
+	pArgs.a = 256L; // number of circuit inputs, currently upper-bounded by its width 
 	fHead.a = pArgs.a;
 
 	pArgs.b = 32L; // number of circuit outputs, currently upper-bounded by its width
@@ -75,7 +75,7 @@ int main( int argc, char **argv ) {
 	pArgs.input = NULL; // no input specified (a random input will be generated, if necessary)
 	pArgs.createFile = False; // no BPW file will be created
 	pArgs.zippy = 1; // no error-checking on data blocks.  Use -z0 when debugging.
-	pArgs.quiet = True; // no diagnostic output, but echo args and print circuit I/O
+	pArgs.quiet = False; // no diagnostic output, but echo args and print circuit I/O
 	pArgs.circuitFileName = NULL; // no file specified, so we'll evaluate a random circuit by default
 	pArgs.ospace = False; // if True, allocate file buffers in the OS/win32 heap, otherwise in program heap
 	fHead.version = 0L; // prototype

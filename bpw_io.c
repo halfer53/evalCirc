@@ -20,7 +20,7 @@
 #include <windows.h>
 #include <assert.h>
 // #include <zlib.h>  //TODO: use crc32() to compute crc for header
-
+#include "bpw_linux.h"
 #define FLOORLOG2(X) ((unsigned) (8*sizeof (unsigned long long) - __builtin_clzll((X)) - 1))
 
 static int resSize= 0; // number of buffer bytes currently "reserved" for reading or writing
@@ -29,8 +29,13 @@ static char* magicStr = "BPW"; // "magic" (filetype) chars at the beginning of a
 
 // We allocate two structs of this type, referenced by curr_fb and next_fb
 typedef struct {
+#ifdef __linux__ 
+	int fd;
+	struct aiocb cb;
+#elif __CYGWIN__
 	HANDLE hFile; // Windows file handle (using windows type convention)
 	LPOVERLAPPED pOverlap; // this struct is reserved for use by the win32 runtime
+#endif
 	uint8_t *fbuffer;
 	uint64_t fbsize; // number of bytes of data in this buffer
 	uint64_t fbi; // index into fbuffer: next char
@@ -52,17 +57,55 @@ uint8_t * pCfbI( ) {
 	return (uint8_t *) &( curr_fb->fbuffer[curr_fb->fbi] );
 }
 
+#ifdef __linux__ 
+#define IOPENDING	EINPROGRESS
+#define IOTIMEOUT	EAGAIN
+#define IOCOMPLETE	0
+#elif __CYGWIN__
+#define IOPENDING	ERROR_IO_PENDING
+#define IOTIMEOUT	WAIT_TIMEOUT
+#define IOCOMPLETE	WAIT_OBJECT_0
+#endif
+
+DWORD get_err(){
+#ifdef __linux__ 
+	int val = aio_error( &curr_fb->cb );
+	return (DWORD)(val == -1 ? errno : val);
+#elif __CYGWIN__
+	return GetLastError();
+#endif
+}
+
 int64_t get_file_size( ) {
+
+#ifdef __linux__ 
+	struct stat st;
+	sys_chk(stat(filename, &st));
+	return (int64_t)st.st_size;
+
+#elif __CYGWIN__
 	LARGE_INTEGER fs;
 	BOOL bCompleted = GetFileSizeEx(fb0.hFile, &fs);
 	if( !bCompleted ) {
-		DWORD lastErr = GetLastError( );
+		DWORD lastErr = get_err( );
 		printf( "GetFileSizeEx() reported failure, with error code %d and filesize %lld",
 				lastErr, fs.QuadPart );
 		exit( EXIT_FAILURE );
 	}
 	return fs.QuadPart;
+#endif
+    
 }
+
+#ifdef __linux__ 
+
+struct aiocb* get_file_aiocb(){
+	struct aiocb cb;
+	memset(&cb, 0, sizeof(struct aiocb));
+	int accessflags = pArgs.createFile ? O_WRONLY : O_RDONLY;
+	sys_chk(cb.aio_fildes = open(pArgs.circuitFileName, O_CREAT | accessflags, S_IRUSR | S_IWUSR));
+}
+#elif __CYGWIN__
 
 HANDLE get_file_handle() {
 	HANDLE h;
@@ -80,15 +123,51 @@ HANDLE get_file_handle() {
 			NULL // no attributes copied from another file
 		);
 	if (h == INVALID_HANDLE_VALUE) {
-		DWORD last_err = GetLastError();
+		DWORD last_err = get_err();
 		printf("Error code %d: unable to create handle for file \"%s\".\n",
 				last_err, pArgs.circuitFileName);
 		exit(last_err);
 	}
 	return (h);
 }
+#endif
 
 // initialise both FileBuffers, allocating and reserving a small area for the file header
+
+
+#ifdef __linux__ 
+void init_fbuffers(){
+	uint8_t *buf0;
+
+	struct aiocb* h = get_file_aiocb();
+	fb0.hFile = h;
+	fb1.hFile = h;
+	fb2.hFile = h;
+
+	buf0 = calloc(1, HEADER_LENGTH); // we can't allocate buf1 and buf2 until we know blocksize
+	fb0.fbuffer = buf0; // for reading the header
+	fb0.fbsize = HEADER_LENGTH; // the first block of a BPW file holds its header
+
+	fb1.fbuffer = 0; // can't read any blocks of data until the blocksize is known
+	fb1.fbsize = 0; // data blocks are all the same size.... currently unknown
+	fb2.fbuffer = 0; // can't read any blocks of data until the blocksize is known
+	fb2.fbsize = 0; // data blocks are all the same size.... currently unknown
+
+	fb0.fbi = 0;
+	fb1.fbi = 0;
+	fb2.fbi = 0;
+
+	fb0.offset = 0;
+	fb1.offset = fHead.offsetToData;
+	fb2.offset = 0; // currently unknown...
+
+	curr_fb = &fb0;
+	next_fb = &fb1;
+}
+
+
+#elif __CYGWIN__
+
 void init_fbuffers() {
 	uint8_t *buf0;
 	LPOVERLAPPED ov0;
@@ -125,19 +204,19 @@ void init_fbuffers() {
     HANDLE h_Ev0 = CreateEvent(NULL, FALSE, FALSE, "fb0 event");
     if (h_Ev0 == NULL)
     {
-        printf("Unable to create wait event! Error: %u\n", GetLastError());
+        printf("Unable to create wait event! Error: %u\n", get_err());
         exit(EXIT_FAILURE);
     }
     HANDLE h_Ev1 = CreateEvent(NULL, FALSE, FALSE, "fb1 event");
     if (h_Ev1 == NULL)
     {
-        printf("Unable to create wait event! Error: %u\n", GetLastError());
+        printf("Unable to create wait event! Error: %u\n", get_err());
         exit(EXIT_FAILURE);
     }
     HANDLE h_Ev2 = CreateEvent(NULL, FALSE, FALSE, "fb2 event");
     if (h_Ev2 == NULL)
     {
-        printf("Unable to create wait event! Error: %u\n", GetLastError());
+        printf("Unable to create wait event! Error: %u\n", get_err());
         exit(EXIT_FAILURE);
     }
 
@@ -175,19 +254,21 @@ void init_fbuffers() {
 
 }
 
+#endif
+
 void alloc_fbuffers() {
 	uint8_t *buf1;
 	uint8_t *buf2;
 	long blockSize = (1L << pArgs.lgbs);
 
-	if( pArgs.ospace ) {
-		HANDLE heap = GetProcessHeap(); // handle of heap in win32 api
-		buf1 = HeapAlloc(heap, 0, blockSize);
-		buf2 = HeapAlloc(heap, 0, blockSize);
-	} else {
+	// if( pArgs.ospace ) {
+	// 	HANDLE heap = GetProcessHeap(); // handle of heap in win32 api
+	// 	buf1 = HeapAlloc(heap, 0, blockSize);
+	// 	buf2 = HeapAlloc(heap, 0, blockSize);
+	// } else {
 		buf1 = calloc(blockSize, 1);
 		buf2 = calloc(blockSize, 1);
-	}
+	// }
 
 	if ( buf1==0 || buf2==0 ) {
 		printf("Unable to allocate buffers.\n");
@@ -211,23 +292,28 @@ void alloc_fbuffers() {
 }
 
 void write_fbuffer() {
-
+	bool bCompleted;
+#ifdef __linux__ 
+	sys_chk(aio_write(curr_fb->cb));
+	bCompleted = get_err() == IOPENDING;
+#elif __CYGWIN__
 	if( !pArgs.quiet ) {
 		printf("curr_fb->hFile at %p for WriteFile\n", curr_fb->hFile);
 		printf("curr_fb->fbuffer at %p for WriteFile\n", curr_fb->fbuffer);
-		printf("curr_fb->fbsize is %lx for WriteFile\n", curr_fb->fbsize);
+		printf("curr_fb->fbsize is %ld for WriteFile\n", curr_fb->fbsize);
 		printf("curr_fb->pOverlap at %p for WriteFile\n", curr_fb->pOverlap);
 		printf("curr_fb->pOverlap->Pointer at %p for WriteFile\n", curr_fb->pOverlap->Pointer);
 	}
 
-	BOOL bCompleted = WriteFile(curr_fb->hFile, curr_fb->fbuffer,
+	bCompleted = WriteFile(curr_fb->hFile, curr_fb->fbuffer,
 			(DWORD) curr_fb->fbsize,
 			NULL,
 			curr_fb->pOverlap // async write
 			);
+#endif
 	if (!bCompleted) {
-		DWORD last_err = GetLastError();
-		if (last_err == ERROR_IO_PENDING) {
+		DWORD last_err = get_err();
+		if (last_err == IOPENDING) {
 			if (!pArgs.quiet) {
 				printf("Writing a block...");
 			}
@@ -244,15 +330,22 @@ void write_fbuffer() {
 }
 
 void wait_on_fb( pFileBuffer_t pfb ) {
+#ifdef __linux__
+	struct timespec timeoutspec;
+	timeoutspec.tv_sec = 1;
+	timeoutspec.tv_nsec = 0;
+	DWORD dwResult = aio_suspend(&&curr_fb->cb, 1, &timeoutspec);
+#elif __CYGWIN__
 	DWORD dwResult = WaitForSingleObject(pfb->pOverlap->hEvent, 1000); // timeout 1000 msec
-	DWORD lastErr = GetLastError();
+#endif
+	DWORD lastErr = get_err();
 
-	if (dwResult == WAIT_OBJECT_0) {
+	if (dwResult == IOCOMPLETE) {
 		if( !pArgs.quiet ) {
 			printf("File I/O Completed\n");
 		}
 	} else {
-		if (dwResult == WAIT_TIMEOUT) {
+		if (dwResult == IOTIMEOUT) {
 			printf("Timeout waiting for file I/O to complete\n");
 		} else {
 			printf("File I/O error %d\n", lastErr );
@@ -279,8 +372,8 @@ void read_fbuffer(pFileBuffer_t pfb) {
 			pfb->pOverlap // async
 			);
 	if (!bCompleted) {
-		DWORD last_err = GetLastError();
-		if (last_err == ERROR_IO_PENDING) {
+		DWORD last_err = get_err();
+		if (last_err == IOPENDING) {
 			if( !pArgs.quiet ) {
 				printf("Reading a block...");
 			}
@@ -657,7 +750,7 @@ void close_file() {
 
 	BOOL bSuccess = CloseHandle(curr_fb->hFile);
 	if (!bSuccess) {
-		DWORD last_err = GetLastError();
+		DWORD last_err = get_err();
 		printf("Error code %d when closing \"%s\".\n", last_err,
 				pArgs.circuitFileName);
 		exit(last_err);
@@ -684,7 +777,7 @@ void ErrorExit(char* str)
 
     LPVOID lpMsgBuf;
     LPVOID lpDisplayBuf;
-    DWORD dw = GetLastError();
+    DWORD dw = get_err();
 
     FormatMessage(
         FORMAT_MESSAGE_ALLOCATE_BUFFER |
