@@ -10,9 +10,9 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-#include "EvalCircuit.h"
-#include "randomRD.h"
-#include "getGate.h"
+#include "evalcircuit.h"
+#include "randomrd.h"
+#include "getgate.h"
 
 
 

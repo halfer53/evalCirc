@@ -7,7 +7,7 @@
  *
  */
 
-#include "EvalCircuit.h"
+#include "evalcircuit.h"
 #include "bpw_io.h"
 
 #include <stdio.h>
@@ -15,9 +15,14 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#ifdef __linux__
+#include <aio.h>
+#endif
 #include <math.h> // for log2()
 #include <sys/stat.h>
+#ifdef __CYGWIN__
 #include <windows.h>
+#endif
 #include <assert.h>
 // #include <zlib.h>  //TODO: use crc32() to compute crc for header
 #include "bpw_linux.h"
@@ -31,7 +36,7 @@ static char* magicStr = "BPW"; // "magic" (filetype) chars at the beginning of a
 typedef struct {
 #ifdef __linux__ 
 	int fd;
-	struct aiocb cb;
+	struct aiocb* cb;
 #elif __CYGWIN__
 	HANDLE hFile; // Windows file handle (using windows type convention)
 	LPOVERLAPPED pOverlap; // this struct is reserved for use by the win32 runtime
@@ -69,7 +74,7 @@ uint8_t * pCfbI( ) {
 
 DWORD get_err(){
 #ifdef __linux__ 
-	int val = aio_error( &curr_fb->cb );
+	int val = aio_error( curr_fb->cb );
 	return (DWORD)(val == -1 ? errno : val);
 #elif __CYGWIN__
 	return GetLastError();
@@ -80,7 +85,7 @@ int64_t get_file_size( ) {
 
 #ifdef __linux__ 
 	struct stat st;
-	sys_chk(stat(filename, &st));
+	sys_chk(fstat(fb0.cb->aio_fildes, &st));
 	return (int64_t)st.st_size;
 
 #elif __CYGWIN__
@@ -97,15 +102,7 @@ int64_t get_file_size( ) {
     
 }
 
-#ifdef __linux__ 
-
-struct aiocb* get_file_aiocb(){
-	struct aiocb cb;
-	memset(&cb, 0, sizeof(struct aiocb));
-	int accessflags = pArgs.createFile ? O_WRONLY : O_RDONLY;
-	sys_chk(cb.aio_fildes = open(pArgs.circuitFileName, O_CREAT | accessflags, S_IRUSR | S_IWUSR));
-}
-#elif __CYGWIN__
+#ifdef __CYGWIN__
 
 HANDLE get_file_handle() {
 	HANDLE h;
@@ -138,11 +135,24 @@ HANDLE get_file_handle() {
 #ifdef __linux__ 
 void init_fbuffers(){
 	uint8_t *buf0;
+	struct aiocb *cb1, *cb2, *cb3;
+	int fd;
+	cb1 = calloc(1, sizeof(struct aiocb));
+	cb2 = calloc(1, sizeof(struct aiocb));
+	cb3 = calloc(1, sizeof(struct aiocb));
 
-	struct aiocb* h = get_file_aiocb();
-	fb0.hFile = h;
-	fb1.hFile = h;
-	fb2.hFile = h;
+	int accessflags = pArgs.createFile ? O_WRONLY : O_RDONLY;
+	sys_chk(fd = open(pArgs.circuitFileName, O_CREAT | accessflags, S_IRUSR | S_IWUSR));
+
+	cb1->aio_fildes = fd;
+	cb2->aio_fildes = dup(fd);
+	cb3->aio_fildes = dup(fd);
+
+	cb2->aio_offset = fHead.offsetToData;
+
+	fb0.cb = cb1;
+	fb1.cb = cb2;
+	fb2.cb = cb3;
 
 	buf0 = calloc(1, HEADER_LENGTH); // we can't allocate buf1 and buf2 until we know blocksize
 	fb0.fbuffer = buf0; // for reading the header
@@ -293,18 +303,24 @@ void alloc_fbuffers() {
 
 void write_fbuffer() {
 	bool bCompleted;
-#ifdef __linux__ 
-	sys_chk(aio_write(curr_fb->cb));
-	bCompleted = get_err() == IOPENDING;
-#elif __CYGWIN__
 	if( !pArgs.quiet ) {
-		printf("curr_fb->hFile at %p for WriteFile\n", curr_fb->hFile);
+//		#ifdef __CYGWIN__
+//		printf("curr_fb->hFile at %p for WriteFile\n", curr_fb->hFile);
+//		printf("curr_fb->pOverlap at %p for WriteFile\n", curr_fb->pOverlap);
+//		printf("curr_fb->pOverlap->Pointer at %p for WriteFile\n", curr_fb->pOverlap->Pointer);
+//		#endif
+
 		printf("curr_fb->fbuffer at %p for WriteFile\n", curr_fb->fbuffer);
 		printf("curr_fb->fbsize is %ld for WriteFile\n", curr_fb->fbsize);
-		printf("curr_fb->pOverlap at %p for WriteFile\n", curr_fb->pOverlap);
-		printf("curr_fb->pOverlap->Pointer at %p for WriteFile\n", curr_fb->pOverlap->Pointer);
+		
 	}
 
+#ifdef __linux__ 
+	curr_fb->cb->aio_buf = curr_fb->fbuffer;
+	curr_fb->cb->aio_offset = curr_fb->fbsize;
+	sys_chk(aio_write(curr_fb->cb));
+	bCompleted = get_err() == IOCOMPLETE;
+#elif __CYGWIN__
 	bCompleted = WriteFile(curr_fb->hFile, curr_fb->fbuffer,
 			(DWORD) curr_fb->fbsize,
 			NULL,
@@ -331,10 +347,11 @@ void write_fbuffer() {
 
 void wait_on_fb( pFileBuffer_t pfb ) {
 #ifdef __linux__
-	struct timespec timeoutspec;
-	timeoutspec.tv_sec = 1;
-	timeoutspec.tv_nsec = 0;
-	DWORD dwResult = aio_suspend(&&curr_fb->cb, 1, &timeoutspec);
+	struct timespec timeoutspec = {1, 0};
+	// timeoutspec.tv_sec = 1;
+	// timeoutspec.tv_nsec = 0;
+	const struct aiocb *const alist[1] = {pfb->cb};
+	DWORD dwResult = aio_suspend(alist, 1, &timeoutspec);
 #elif __CYGWIN__
 	DWORD dwResult = WaitForSingleObject(pfb->pOverlap->hEvent, 1000); // timeout 1000 msec
 #endif
@@ -350,7 +367,13 @@ void wait_on_fb( pFileBuffer_t pfb ) {
 		} else {
 			printf("File I/O error %d\n", lastErr );
 		}
+
+		#ifdef __linux__
+		aio_cancel(pfb->cb->aio_fildes, pfb->cb);
+		#elif __CYGWIN__
 		CancelIo(pfb->hFile);
+		#endif
+
 		exit(EXIT_FAILURE);
 	}
 }
@@ -358,19 +381,29 @@ void wait_on_fb( pFileBuffer_t pfb ) {
 void read_fbuffer(pFileBuffer_t pfb) {
 
 	if( !pArgs.quiet ) {
-		printf("pfb->hFile at %p for ReadFile\n", pfb->hFile);
+//		#ifdef __CYGWIN__
+//		printf("pfb->hFile at %p for ReadFile\n", pfb->hFile);
+//		printf("pfb->pOverlap at %p for ReadFile\n", pfb->pOverlap);
+//		printf("pfb->pOverlap->Pointer at %p for ReadFile\n", pfb->pOverlap->Pointer);
+//		#endif
+
 		printf("pfb->fbuffer at %p for ReadFile\n", pfb->fbuffer);
 		printf("pfb->fbsize is %lx for ReadFile\n", pfb->fbsize);
-		printf("pfb->pOverlap at %p for ReadFile\n", pfb->pOverlap);
-		printf("pfb->pOverlap->Pointer at %p for ReadFile\n", pfb->pOverlap->Pointer);
+		
 	}
-
+#ifdef __linux__
+	pfb->cb->aio_buf = pfb->fbuffer;
+	pfb->cb->aio_offset = pfb->fbsize;
+	sys_chk(aio_read(pfb->cb));
+	BOOL bCompleted = get_err() == IOCOMPLETE;
+#elif __CYGWIN__
 	BOOL bCompleted = ReadFile(pfb->hFile,
 			pfb->fbuffer,
 			(DWORD) pfb->fbsize,
 			NULL, // OVERLAPPED
 			pfb->pOverlap // async
 			);
+#endif
 	if (!bCompleted) {
 		DWORD last_err = get_err();
 		if (last_err == IOPENDING) {
@@ -425,7 +458,9 @@ void reserve_fbuffer(int gateSize) { // prepare to read or write a field
 			}
 			curr_fb->fbi = 0;
 			curr_fb->offset = next_fb->offset + next_fb->fbsize;
+			#ifdef __CYGWIN__
 			curr_fb->pOverlap->Pointer = (PVOID) curr_fb->offset;
+			#endif
 			read_fbuffer( curr_fb );
 		}
 		// block until next_fb is available for use (general case)
@@ -455,7 +490,9 @@ void reserve_fbuffer(int gateSize) { // prepare to read or write a field
 		if( pArgs.createFile && (next_fb->offset > 0) ) {
 			curr_fb->fbi = 0;
 			curr_fb->offset = next_fb->offset + next_fb->fbsize; // next data block
+			#ifdef __CYGWIN__
 			curr_fb->pOverlap->Pointer = (PVOID) curr_fb->offset;
+			#endif
 		}
 
 	}
@@ -744,9 +781,16 @@ void close_file() {
 	}
 
 	if( pArgs.createFile ) {
+		#ifdef __linux__
+		fsync(fb1.cb->aio_fildes);
+		#elif __CYGWIN__
 		FlushFileBuffers(fb1.hFile);
+		#endif
 		printf("Flushing writes to disk.\n");
 	}
+	#ifdef __linux__
+	sys_chk(close(curr_fb->cb->aio_fildes));
+	#elif __CYGWIN__
 
 	BOOL bSuccess = CloseHandle(curr_fb->hFile);
 	if (!bSuccess) {
@@ -755,10 +799,15 @@ void close_file() {
 				pArgs.circuitFileName);
 		exit(last_err);
 	}
-
+	#endif
 }
 
 void free_handles() {
+	#ifdef __linux__
+	close(fb1.cb->aio_fildes);
+	close(fb2.cb->aio_fildes);
+
+	#elif __CYGWIN__
     CloseHandle(fb1.pOverlap->hEvent);
     CloseHandle(fb2.pOverlap->hEvent);
     if( pArgs.ospace ) {
@@ -767,9 +816,11 @@ void free_handles() {
         HeapFree(heap, 0, fb2.fbuffer);
         HeapFree(heap, 0, fb1.pOverlap);
         HeapFree(heap, 0, fb2.pOverlap);
-    }
+	}
+	#endif
 }
 
+#ifdef __CYGWIN__
 // https://msdn.microsoft.com/en-us/library/windows/desktop/ms680582(v=vs.85).aspx, without <strsafe.h>
 void ErrorExit(char* str)
 {
@@ -801,4 +852,5 @@ void ErrorExit(char* str)
     LocalFree(lpDisplayBuf); //TODO: release all other resources!
     ExitProcess(dw);
 }
+#endif
 

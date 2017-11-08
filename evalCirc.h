@@ -8,6 +8,8 @@
 #ifndef EVALCIRC_H_
 #define EVALCIRC_H_
 
+#include <stdlib.h>
+
 // evaluate circuit, return index of circuit-output area of vm[]
 long evalOrCreateCirc8211(void);  // g8221 format (lgw <= 6, at most two gate-types)
 long evalOrCreateCirc8221(void);  // g8221 format (lgw <= 14, at most two gate-types)

@@ -8,6 +8,7 @@
 #define GETGATE_H_
 
 #include <stdint.h>
+#include <stdlib.h>
 #include "bpw_io.h"
 
 typedef struct _gate { // general case -- inefficient space, but rapid access
