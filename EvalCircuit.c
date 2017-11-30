@@ -75,7 +75,7 @@ int main( int argc, char **argv ) {
 	pArgs.input = NULL; // no input specified (a random input will be generated, if necessary)
 	pArgs.createFile = False; // no BPW file will be created
 	pArgs.zippy = 1; // no error-checking on data blocks.  Use -z0 when debugging.
-	pArgs.quiet = True; // no diagnostic output, but echo args and print circuit I/O
+	pArgs.quiet = False; // no diagnostic output, but echo args and print circuit I/O
 	pArgs.circuitFileName = NULL; // no file specified, so we'll evaluate a random circuit by default
 	pArgs.ospace = False; // if True, allocate file buffers in the OS/win32 heap, otherwise in program heap
 	fHead.version = 0L; // prototype
@@ -231,10 +231,15 @@ int main( int argc, char **argv ) {
 	}
 
 	uint64_t vmSize = 4 * fHead.w / 8;  // 4 banks of w bits = w/2 bytes in vm
+	if(!pArgs.quiet)
+		printf("vm size %d w %d n %d\n", vmSize, fHead.w, fHead.n);
 	if( vmSize < 32 ) {
 		vmSize = 32; // this simplifies bounds-checking in evalCirc8211() for very small w
 	}
+
+
 	pArgs.vm = (UByteP) calloc( vmSize, 1 );
+	pArgs.vmsize = vmSize;
 	if( pArgs.vm == NULL ) {
 		puts( "Unable to allocate enough working memory" );
 		return EXIT_FAILURE;
@@ -278,6 +283,7 @@ int main( int argc, char **argv ) {
 
 	// the circuit-input region of vm is its first pArgs.a bits
 	// TODO: handle case of pArgs.a > pArgs.w, after COPY pseudogates are implemented
+
 	if( !pArgs.createFile ) {
 		if( pArgs.input == NULL ) {
 			for( int ibi=0; ibi < ((pArgs.a - 1) / 8) + 1; ibi++ ) {
@@ -338,6 +344,7 @@ int main( int argc, char **argv ) {
 		}
 		printf( "\n" );
 	}
+
 
 	// evaluate
 

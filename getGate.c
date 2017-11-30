@@ -51,9 +51,14 @@ pgate8241_t reserveGate8241( ) { // unbuffered read or write of 8 gates in 8241 
 	return (pgate8241_t) pCfbI();
 }
 
-pgate8244_t reserveGate8244( ) { // unbuffered read or write of 8 gates in 8244 format
-	reserve_fbuffer( LGATE8244_T );
-	return (pgate8244_t) pCfbI();
+inline pgate8244_t reserveGate8244( ) { // unbuffered read or write of 8 gates in 8244 format
+    reserve_fbuffer( LGATE8244_T );
+    return (pgate8244_t) pCfbI();
+}
+
+inline pgate8344_t reserveGate8344( ) { // unbuffered read or write of 8 gates in 8244 format
+    reserve_fbuffer( LGATE8344_T );
+    return (pgate8244_t) pCfbI();
 }
 
 void releaseGate8xxx( ) { // releases the currently-reserved portion of fbuffer
@@ -63,24 +68,28 @@ void releaseGate8xxx( ) { // releases the currently-reserved portion of fbuffer
 void randGate( pgate_t g, long lev, long ibase ) { // generate a random gate
 	// if lev==0, gate-inputs are connected to random circuit-inputs
 	// if lev!=0, gate-inputs are connected to random gate-inputs from vm[ibase..ibase+pArgs.w-1]
-	//TODO: reparameterise so that g->gtype is of correct width
 
 	uint32_t r1 = randomRDk( pArgs.lgw );
 	uint32_t r2 = randomRDk( pArgs.lgw );
+    uint32_t r3 = randomRDk( pArgs.lgw );
 
-	g->gtype = randomRDk( 1 );
-	//TODO: support 3-input gates and COPY pseudogates
+	g->gtype = randomRDk( 8 );
+
 
 	if( lev==0 ) { // level-0 gate inputs are connected to random circuit inputs
 		g->in1 = (r1 % pArgs.a);
 		g->in2 = (r2 % pArgs.a);
+        g->in3 = (r3 % pArgs.a);
 	} else { // level>0 gates are connected to random gate-outputs on prior level
 		if( fHead.w == (1LL << (pArgs.lgw)) ) { // special case: width is a power of two
+
 			g->in1 = ibase + r1;
 			g->in2 = ibase + r2;
+            g->in3 = ibase + r3;
 		} else {
 			g->in1 = ibase + (r1 % fHead.w);
 			g->in2 = ibase + (r2 % fHead.w);
+            g->in3 = ibase + (r3 % fHead.w);
 		}
 	}
 }

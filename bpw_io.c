@@ -213,11 +213,11 @@ void alloc_fbuffers() {
 void write_fbuffer() {
 
 	if( !pArgs.quiet ) {
-		printf("curr_fb->hFile at %p for WriteFile\n", curr_fb->hFile);
+//		printf("curr_fb->hFile at %p for WriteFile\n", curr_fb->hFile);
 		printf("curr_fb->fbuffer at %p for WriteFile\n", curr_fb->fbuffer);
 		printf("curr_fb->fbsize is %lx for WriteFile\n", curr_fb->fbsize);
-		printf("curr_fb->pOverlap at %p for WriteFile\n", curr_fb->pOverlap);
-		printf("curr_fb->pOverlap->Pointer at %p for WriteFile\n", curr_fb->pOverlap->Pointer);
+//		printf("curr_fb->pOverlap at %p for WriteFile\n", curr_fb->pOverlap);
+//		printf("curr_fb->pOverlap->Pointer at %p for WriteFile\n", curr_fb->pOverlap->Pointer);
 	}
 
 	BOOL bCompleted = WriteFile(curr_fb->hFile, curr_fb->fbuffer,
@@ -364,7 +364,6 @@ void reserve_fbuffer(int gateSize) { // prepare to read or write a field
 			curr_fb->offset = next_fb->offset + next_fb->fbsize; // next data block
 			curr_fb->pOverlap->Pointer = (PVOID) curr_fb->offset;
 		}
-
 	}
 }
 

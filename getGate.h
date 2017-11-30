@@ -13,6 +13,7 @@
 typedef struct _gate { // general case -- inefficient space, but rapid access
 	uint64_t in1; // allow huge circuit-widths
 	uint64_t in2;
+    uint64_t in3;
 	uint8_t gtype; // huge basis
 } gate_t, *pgate_t;
 
@@ -67,6 +68,12 @@ typedef struct _gate8244 { // eight 2-input gates: two 4-byte input descriptors 
 } gate8244_t, *pgate8244_t;
 #define LGATE8244_T 68 // seventeen four-byte words
 
+typedef struct _gate8344 { // eight 3-input gates: three 4-byte input descriptors and 4-bit type
+    uint32_t gid[27];
+    uint8_t gtype[4];  // two type-nibbles in each cell
+} gate8344_t, *pgate8344_t;
+#define LGATE8344_T 112
+
 pgate8211_t reserveGate8211( );
 pgate8214_t reserveGate8214( );
 pgate8221_t reserveGate8221( );
@@ -75,8 +82,30 @@ pgate8231_t reserveGate8231( );
 pgate8234_t reserveGate8234( );
 pgate8241_t reserveGate8241( );
 pgate8244_t reserveGate8244( );
+pgate8344_t reserveGate8344( );
 void releaseGate8xxx( );
 
 void randGate( pgate_t, long lev, long ibase);
+void debug_pg8244gate(pgate8244_t gate);
+void debug_vm(UByteP vm);
+
+#define NAND_GATE	(0)
+#define NOR_GATE	(1)
+#define XOR_GATE	(2)
+#define OR_GATE     (3)
+#define AND_GATE    (4)
+#define XNOR_GATE   (5)
+#define NOT_GATE    (6)
+#define AND3_GATE   (7)
+#define NAND3_GATE  (8)
+#define NOR3_GATE   (9)
+#define XOR3_GATE   (10)
+#define OR3_GATE    (11)
+#define XNOR3_GATE  (12)
+#define MUX_GATE    (13)
+#define COPY_GATE   (14)
+#define UNDEFINED_GATE  (15)
+
+#define DEFAULT_GATE    NAND_GATE
 
 #endif /* GETGATE_H_ */

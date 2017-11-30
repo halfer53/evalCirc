@@ -29,6 +29,7 @@ struct progArgs {
 	bool ospace; // allocate filebuffers in win32 address space
 	int ginSize; // bit-width of a gate input-specifier
 	int headerSize; // number of bytes in the header, and in the first block of the file
+    uint64_t vmsize; //size of virtual memory vm
 };
 
 #define BPW_VERSION 0 // the highest BPW file version supported by this program

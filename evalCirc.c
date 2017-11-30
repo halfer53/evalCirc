@@ -14,7 +14,8 @@
 #include "EvalCircuit.h"
 #include "evalCirc.h"
 #include "getGate.h"
-
+#include "randomrd.h"
+#include <inttypes.h>
 long evalOrCreateCirc8211() { // tuned for g8211 evals; handles creates and random-evals
 
 	long level = 0;
@@ -429,6 +430,7 @@ long evalCirc8224() { // tuned for g8224 evals
 		exit( EXIT_FAILURE );
 	}
 
+
 	while( ngate < fHead.n ) {
 
 		obase = (2 + (level % 2)) * fHead.w; // outputs go here
@@ -465,11 +467,13 @@ long evalCirc8224() { // tuned for g8224 evals
 
 				ngate++;
 
+
 			} // end of 8-gate loop
 
 			releaseGate8xxx();  // advances curr_fb->fbi
 
 			pArgs.vm[ (obase+igate)>>3 ] = vmchar;
+
 
 		} // end of level
 
@@ -855,7 +859,7 @@ long evalCirc8244() { // tuned for g8244 evals
 		printf( "Excessive circuit width %lu for a file in g8244 format.\n", fHead.w );
 		exit( EXIT_FAILURE );
 	}
-
+	printf("n %ld w %ld\n", fHead.n, fHead.w);
 	while( ngate < fHead.n ) {
 
 		obase = (2 + (level % 2)) * fHead.w; // outputs go here
@@ -872,30 +876,61 @@ long evalCirc8244() { // tuned for g8244 evals
 				gate_t g;
 				g.in1 = (pg8244->gid)[ 2*i ];
 				g.in2 = (pg8244->gid)[ 2*i + 1 ];
-				if( i%2 ) {
+
+				if( i%2 == 0) {
 					gtypebyte = (pg8244->gid)[ i/2 ];
-					g.gtype = gtypebyte & 0xf;  // first nibble is in the LSBs
+					g.gtype = gtypebyte & 0xf0;  // first nibble is in the LSBs
 				} else {
-					g.gtype = (gtypebyte >> 4) & 0xf; // second nibble in the MSBs
+					g.gtype = gtypebyte & 0xf;
 				}
 
 				// evaluate g
 				uint64_t vin1, vin2, vout;
 				vin1 = ((pArgs.vm)[(g.in1) / 8] >> ((g.in1) % 8)) & 1;
 				vin2 = ((pArgs.vm)[(g.in2) / 8] >> ((g.in2) % 8)) & 1;
-				if( g.gtype & 0x1 ) { // TODO: handle more than two gate-types
-					vout = ( !(vin1 & vin2) ) & 1;  // 2-nand
-				} else {
-					vout = ( !(vin1 | vin2) ) & 1;  // 2-nor
-				}
+
+                switch((g.gtype & 0xf) % 6){
+                    case NAND_GATE:
+                        vout = ( !(vin1 & vin2) ) & 1;  // 2-nand
+                        break;
+
+                    case NOR_GATE:
+                        vout = ( !(vin1 | vin2) ) & 1;  // 2-nor
+                        break;
+
+                    case XOR_GATE:
+                        vout = (vin1 ^ vin2) & 1;
+                        break;
+
+                    case OR_GATE:
+                        vout = (vin1 | vin2) & 1;
+                        break;
+					case AND_GATE:
+						vout = (vin1 & vin2) & 1;
+						break;
+					case XNOR_GATE:
+						vout = (!(vin1 ^ vin2)) & 1;
+						break;
+					case NOT_GATE:
+						vout = (~vin1) & 1;
+						break;
+
+                    default: //shouldn't happen
+                        printf("evaluting gate %d %d not handled\n",g.gtype,(g.gtype & 0xf) % 6);
+                        abort();
+                        break;
+
+                }
 				vmchar = (vout << 7) + (vmchar >> 1);
 
+//              printf("vin1 %x %x vin2 %x %x vout %x vmchar %x\n",g.in1, vin1, g.in2, vin2, vout, vmchar);
 				ngate++;
 
 			} // end of 8-gate loop
-
+			debug_pg8244gate(pg8244);
 			releaseGate8xxx();  // advances curr_fb->fbi
-
+          	printf("obase %ld igate %ld vm index %ld vmchar %x\n", obase, igate, (obase+igate)>>3, vmchar);
+			debug_vm(pArgs.vm);
 			pArgs.vm[ (obase+igate)>>3 ] = vmchar;
 
 		} // end of level
@@ -936,23 +971,202 @@ void createCirc8244() { // creates a bpw file in g8244 format
 				(pg8244->gid)[ 2*i ] = g.in1;
 				(pg8244->gid)[ 2*i + 1 ] = g.in2;
 
-				if( i%2 ) {
+				if( i%2 == 0) {
 					gtypebyte = (g.gtype & 0xf); // first nibble in LSBs
+
 				} else {
-					gtypebyte |= ((g.gtype & 0xf) << 4); // second nibble in MSBs
+					gtypebyte |= (g.gtype & 0xf0); // second nibble in MSBs
 					(pg8244->gtype)[ i/2 ] = gtypebyte;
 				}
 
 				ngate++;
 
 			} // end of 8-gate loop
-
+			debug_pg8244gate(pg8244);
+			printf("obase %ld igate %ld vm index %ld\n", ibase, igate, (ibase+igate)>>3);
+			debug_vm(pArgs.vm);
 			releaseGate8xxx();  // advances curr_fb->fbi
 
 		} // end of level
 
+		printf("\n===LEVEL %d===\n",level);
 		level++;
 
 	} // end of circuit
+
+}
+
+long evalCirc8344() { // tuned for g8244 evals
+
+    long level = 0;
+    long ngate = 0;
+    long obase = 0; // index into vm, for first output on current level
+
+    if( pArgs.lgw > 30 ) {
+        printf( "Excessive circuit width %lu for a file in g8244 format.\n", fHead.w );
+        exit( EXIT_FAILURE );
+    }
+
+    while( ngate < fHead.n ) {
+
+        obase = (2 + (level % 2)) * fHead.w; // outputs go here
+
+        for( long igate = 0; igate < fHead.w; igate = igate+8 ) { // index gates on this level
+
+            unsigned char vmchar = 0; // we collect 8 gate-outputs in vmchar, then write to vm
+            pgate8344_t pg8344 = reserveGate8344( ); // prepare to read or write 8 gates
+            uint8_t gtypebyte = 0;
+
+            for( int i=0; i<8; i++ ) {
+
+                // unpack a gate
+                gate_t g;
+                g.in1 = (pg8344->gid)[ 2*i ];
+                g.in2 = (pg8344->gid)[ 2*i + 1 ];
+                g.in3 = (pg8344->gid)[ 2*i + 2 ];
+
+                if( i%2 == 0) {
+                    gtypebyte = (pg8344->gid)[ i/2 ];
+                    g.gtype = gtypebyte & 0xf0;  // first nibble is in the LSBs
+                } else {
+                    g.gtype = gtypebyte & 0xf;
+                }
+
+                // evaluate g
+                uint64_t vin1, vin2, vin3, vout;
+                vin1 = ((pArgs.vm)[(g.in1) / 8] >> ((g.in1) % 8)) & 1;
+                vin2 = ((pArgs.vm)[(g.in2) / 8] >> ((g.in2) % 8)) & 1;
+                vin3 = ((pArgs.vm)[(g.in3) / 8] >> ((g.in3) % 8)) & 1;
+
+                switch(g.gtype & 0xf){ //the lower 4 bits are evaluated
+                    case NAND_GATE:
+                        vout = ( !(vin1 & vin2) ) & 1;  // 2-nand
+                        break;
+
+                    case NOR_GATE:
+                        vout = ( !(vin1 | vin2) ) & 1;  // 2-nor
+                        break;
+
+                    case XOR_GATE:
+                        vout = (vin1 ^ vin2) & 1;
+                        break;
+
+                    case OR_GATE:
+                        vout = (vin1 | vin2) & 1;
+                        break;
+
+                    case AND_GATE:
+                        vout = (vin1 & vin2) & 1;
+                        break;
+                    case XNOR_GATE:
+                        vout = (!(vin1 ^ vin2)) & 1;
+                        break;
+                    case NOT_GATE:
+                        vout = (~vin1) & 1;
+                        break;
+                    case AND3_GATE:
+                        vout = (vin1 & vin2 & vin3) & 1;
+                        break;
+                    case NAND3_GATE:
+                        vout = (!(vin1 & vin2 & vin3)) & 1;
+                        break;
+                    case NOR3_GATE:
+                        vout = (!(vin1 | vin2 | vin3)) & 1;
+                        break;
+                    case XOR3_GATE:
+                        vout = (vin1 ^ vin2 ^ vin3) & 1;
+                        break;
+                    case OR3_GATE:
+                        vout = (vin1 | vin2 | vin3) & 1;
+                        break;
+                    case XNOR3_GATE:
+                        vout = (!(vin1 ^ vin2 ^ vin3)) & 1;
+                        break;
+                    case MUX_GATE:
+                        vout = (vin3 & 1 ? vin2 : vin1) & 1;
+                        break;
+                    case COPY_GATE:
+                        break;
+					//this is undefined, simply yield 1
+                    case UNDEFINED_GATE:
+						vout = 1;
+                        break;
+
+                    default: //shouldn't happen
+                        printf("evaluting gate not handled\n");
+                        abort();
+                        break;
+
+                }
+                vmchar = (vout << 7) + (vmchar >> 1);
+
+//                printf("vin1 %x %x vin2 %x %x vout %x vmchar %x\n",g.in1, vin1, g.in2, vin2, vout, vmchar);
+                ngate++;
+
+            } // end of 8-gate loop
+
+            releaseGate8xxx();  // advances curr_fb->fbi
+          	printf("obase %d igate %d vm %d vmchar %x\n", obase, igate, (obase+igate)>>3, vmchar);
+
+            pArgs.vm[ (obase+igate)>>3 ] = vmchar;
+
+        } // end of level
+
+        level++;
+
+    } // end of circuit
+
+    return obase;
+
+}
+
+void createCirc8344() { // creates a bpw file in g8244 format
+
+    long level = 0;
+    long ngate = 0;
+    long ibase;
+    pgate8344_t pg8344;
+    uint8_t gtypebyte = 0;
+
+    if( pArgs.lgw > 30 ) {
+        printf( "Excessive circuit width %lu for a file in g8244 format.\n", fHead.w );
+        exit( EXIT_FAILURE );
+    }
+
+    while( ngate < fHead.n ) {
+
+        ibase = (2 + ((level + 1) % 2)) * fHead.w; // vm index of first gate-output on prior level
+
+        for( long igate = 0; igate < fHead.w; igate = igate+8 ) { // index gates on this level
+
+            pg8344 = reserveGate8344( ); // prepare to write 8 gates
+
+            for( int i=0; i<8; i++ ) {
+
+                gate_t g;
+                randGate( &g, level, ibase ); // generates a gate with randomly-chosen inputs
+                (pg8344->gid)[ 2*i ] = g.in1;
+                (pg8344->gid)[ 2*i + 1 ] = g.in2;
+                (pg8344->gid)[ 2*i + 2 ] = g.in3;
+
+                if( i%2 == 0) {
+                    gtypebyte = (g.gtype & 0xf); // first nibble in LSBs
+
+                } else {
+                    gtypebyte |= (g.gtype & 0xf0); // second nibble in MSBs
+                    (pg8344->gtype)[ i/2 ] = gtypebyte;
+                }
+
+                ngate++;
+
+            } // end of 8-gate loop
+
+            releaseGate8xxx();  // advances curr_fb->fbi
+
+        } // end of level
+
+        level++;
+
+    } // end of circuit
 
 }

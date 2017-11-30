@@ -1,0 +1,10 @@
+*.exe
+analysis/
+cmake-build-debug/
+.vscode/
+.vs/
+.idea/
+.dist/
+*.out
+*.stackdump
+*.bpw
