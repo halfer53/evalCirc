@@ -8,11 +8,22 @@
 #ifndef BPW_IO_H_
 #define BPW_IO_H_
 
-#ifdef __linux__
+#ifndef __unix__
+
+#if defined (__APPLE__) || defined (__linux__)
+#define __unix__
+#endif
+
+#endif
+
+
+
+#ifdef __unix__
 #include <stdio.h>
 #elif __CYGWIN__
 #include <fileapi.h>
 #endif
+
 
 // reserve_fbuffer() must be called to reserve space before any read or write
 void reserve_fbuffer( int gateSize );

@@ -10,7 +10,7 @@
 #include <stdint.h>
 #include "randomrd.h"
 
-#ifdef __linux__
+#ifdef __unix__
 extern __inline int __attribute__((__gnu_inline__, __always_inline__, __artificial__))
 _rdrand64_step (unsigned long long *__P)
 {

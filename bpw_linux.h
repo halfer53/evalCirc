@@ -5,7 +5,7 @@
 #ifndef EVALCIRC_BPW_LINUX_H
 #define EVALCIRC_BPW_LINUX_H
 
-#ifdef __linux__
+#ifdef __unix__
 #include <sys/types.h>
 #include <fcntl.h>
 #include <stdint.h>

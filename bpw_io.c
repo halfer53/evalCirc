@@ -15,7 +15,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#ifdef __linux__
+#ifdef __unix__
 #include <aio.h>
 #endif
 #include <math.h> // for log2()
@@ -34,7 +34,7 @@ static char* magicStr = "BPW"; // "magic" (filetype) chars at the beginning of a
 
 // We allocate two structs of this type, referenced by curr_fb and next_fb
 typedef struct {
-#ifdef __linux__ 
+#ifdef __unix__
 	int fd;
 	struct aiocb* cb;
 #elif __CYGWIN__
@@ -62,7 +62,7 @@ uint8_t * pCfbI( ) {
 	return (uint8_t *) &( curr_fb->fbuffer[curr_fb->fbi] );
 }
 
-#ifdef __linux__ 
+#ifdef __unix__
 #define IOPENDING	EINPROGRESS
 #define IOTIMEOUT	EAGAIN
 #define IOCOMPLETE	0
@@ -73,7 +73,7 @@ uint8_t * pCfbI( ) {
 #endif
 
 DWORD get_err(){
-#ifdef __linux__ 
+#ifdef __unix__
 	int val = aio_error( curr_fb->cb );
 	return (DWORD)(val == -1 ? errno : val);
 #elif __CYGWIN__
@@ -83,7 +83,7 @@ DWORD get_err(){
 
 int64_t get_file_size( ) {
 
-#ifdef __linux__ 
+#ifdef __unix__
 	struct stat st;
 	sys_chk(fstat(fb0.cb->aio_fildes, &st));
 	return (int64_t)st.st_size;
@@ -132,7 +132,7 @@ HANDLE get_file_handle() {
 // initialise both FileBuffers, allocating and reserving a small area for the file header
 
 
-#ifdef __linux__ 
+#ifdef __unix__
 void init_fbuffers(){
 	uint8_t *buf0;
 	struct aiocb *cb1, *cb2, *cb3;
@@ -280,12 +280,12 @@ void alloc_fbuffers() {
 		buf2 = calloc(blockSize, 1);
 	// }
 
-	if ( buf1==0 || buf2==0 ) {
+	if ( unlikely(buf1==0 || buf2==0) ) {
 		printf("Unable to allocate buffers.\n");
 		exit(EXIT_FAILURE);
 	}
 
-	if (!pArgs.quiet) {
+	if (unlikely(!pArgs.quiet)) {
 		printf("buf1 at %p\n", buf1);
 		printf("buf2 at %p\n", buf2);
 	}
@@ -303,7 +303,7 @@ void alloc_fbuffers() {
 
 void write_fbuffer() {
 	bool bCompleted;
-	if( !pArgs.quiet ) {
+	if( unlikely(!pArgs.quiet )) {
 //		#ifdef __CYGWIN__
 //		printf("curr_fb->hFile at %p for WriteFile\n", curr_fb->hFile);
 //		printf("curr_fb->pOverlap at %p for WriteFile\n", curr_fb->pOverlap);
@@ -315,11 +315,13 @@ void write_fbuffer() {
 		
 	}
 
-#ifdef __linux__ 
+#ifdef __unix__
+
 	curr_fb->cb->aio_buf = curr_fb->fbuffer;
 	curr_fb->cb->aio_offset = curr_fb->fbsize;
 	sys_chk(aio_write(curr_fb->cb));
 	bCompleted = get_err() == IOCOMPLETE;
+
 #elif __CYGWIN__
 	bCompleted = WriteFile(curr_fb->hFile, curr_fb->fbuffer,
 			(DWORD) curr_fb->fbsize,
@@ -327,10 +329,10 @@ void write_fbuffer() {
 			curr_fb->pOverlap // async write
 			);
 #endif
-	if (!bCompleted) {
+	if (likely(!bCompleted)) {
 		DWORD last_err = get_err();
-		if (last_err == IOPENDING) {
-			if (!pArgs.quiet) {
+		if (likely(last_err == IOPENDING)) {
+			if (unlikely(!pArgs.quiet)) {
 				printf("Writing a block...");
 			}
 		} else {
@@ -346,7 +348,7 @@ void write_fbuffer() {
 }
 
 void wait_on_fb( pFileBuffer_t pfb ) {
-#ifdef __linux__
+#ifdef __unix__
 	struct timespec timeoutspec = {1, 0};
 	// timeoutspec.tv_sec = 1;
 	// timeoutspec.tv_nsec = 0;
@@ -357,18 +359,18 @@ void wait_on_fb( pFileBuffer_t pfb ) {
 #endif
 	DWORD lastErr = get_err();
 
-	if (dwResult == IOCOMPLETE) {
-		if( !pArgs.quiet ) {
+	if (likely(dwResult == IOCOMPLETE)) {
+		if( unlikely(!pArgs.quiet) ) {
 			printf("File I/O Completed\n");
 		}
 	} else {
-		if (dwResult == IOTIMEOUT) {
+		if (likely(dwResult == IOTIMEOUT)) {
 			printf("Timeout waiting for file I/O to complete\n");
 		} else {
 			printf("File I/O error %d\n", lastErr );
 		}
 
-		#ifdef __linux__
+		#ifdef __unix__
 		aio_cancel(pfb->cb->aio_fildes, pfb->cb);
 		#elif __CYGWIN__
 		CancelIo(pfb->hFile);
@@ -380,7 +382,7 @@ void wait_on_fb( pFileBuffer_t pfb ) {
 
 void read_fbuffer(pFileBuffer_t pfb) {
 
-	if( !pArgs.quiet ) {
+	if( unlikely(!pArgs.quiet) ) {
 //		#ifdef __CYGWIN__
 //		printf("pfb->hFile at %p for ReadFile\n", pfb->hFile);
 //		printf("pfb->pOverlap at %p for ReadFile\n", pfb->pOverlap);
@@ -391,7 +393,7 @@ void read_fbuffer(pFileBuffer_t pfb) {
 		printf("pfb->fbsize is %lx for ReadFile\n", pfb->fbsize);
 		
 	}
-#ifdef __linux__
+#ifdef __unix__
 	pfb->cb->aio_buf = pfb->fbuffer;
 	pfb->cb->aio_offset = pfb->fbsize;
 	sys_chk(aio_read(pfb->cb));
@@ -406,8 +408,8 @@ void read_fbuffer(pFileBuffer_t pfb) {
 #endif
 	if (!bCompleted) {
 		DWORD last_err = get_err();
-		if (last_err == IOPENDING) {
-			if( !pArgs.quiet ) {
+		if (likely(last_err == IOPENDING)) {
+			if( unlikely(!pArgs.quiet) ) {
 				printf("Reading a block...");
 			}
 		} else {
@@ -452,7 +454,7 @@ void reserve_fbuffer(int gateSize) { // prepare to read or write a field
 					abort( );
 				}
 			}
-			if( curr_fb == &fb0 ) { // special case to set up read of second data block
+			if( unlikely(curr_fb == &fb0) ) { // special case to set up read of second data block
 				curr_fb = &fb2;
 				curr_fb->fbsize = (1LL << fHead.lgbs);
 			}
@@ -466,10 +468,10 @@ void reserve_fbuffer(int gateSize) { // prepare to read or write a field
 		// block until next_fb is available for use (general case)
 		// special cases: first two writes
 		if( pArgs.createFile ) {
-			if( curr_fb == &fb0 ) { // first write
+			if( unlikely(curr_fb == &fb0) ) { // first write
 				// no writes are pending
 			} else {
-				if( curr_fb->offset == HEADER_LENGTH ) { // second write
+				if( unlikely(curr_fb->offset == HEADER_LENGTH) ) { // second write
 					wait_on_fb( &fb0 ); // wait on prior write (header)
 				} else {
 					wait_on_fb( next_fb ); // wait on prior write
@@ -764,7 +766,7 @@ void close_file() {
 
 	if (pArgs.createFile) {
 		// flush curr_fb if it's dirty
-		if (curr_fb->fbi > 0) {
+		if (likely(curr_fb->fbi > 0)) {
 			// pad curr_fb with 0s, wait on next_fb, then schedule another write
 			reserve_fbuffer( (1L<<fHead.lgbs) - curr_fb->fbi + 1 );
 		}
@@ -781,14 +783,14 @@ void close_file() {
 	}
 
 	if( pArgs.createFile ) {
-		#ifdef __linux__
+		#ifdef __unix__
 		fsync(fb1.cb->aio_fildes);
 		#elif __CYGWIN__
 		FlushFileBuffers(fb1.hFile);
 		#endif
 		printf("Flushing writes to disk.\n");
 	}
-	#ifdef __linux__
+	#ifdef __unix__
 	sys_chk(close(curr_fb->cb->aio_fildes));
 	#elif __CYGWIN__
 
@@ -803,7 +805,7 @@ void close_file() {
 }
 
 void free_handles() {
-	#ifdef __linux__
+	#ifdef __unix__
 	close(fb1.cb->aio_fildes);
 	close(fb2.cb->aio_fildes);
 
