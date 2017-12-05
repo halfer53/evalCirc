@@ -13,11 +13,11 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "bpw_linux.h"
 #include "xtrapbits.h"
 #include "evalCircuit.h"
 #include "randomRD.h"
 #include "evalCirc.h"
+#include "bpw_io.h"
 #include "getGate.h"
 
 // program args and file-headers are global

@@ -1,3 +1,4 @@
+
 //
 // Created by Bruce on 6/11/2017.
 //
@@ -5,12 +6,17 @@
 #ifndef EVALCIRC_BPW_LINUX_H
 #define EVALCIRC_BPW_LINUX_H
 
+#include "bpw_io.h"
+
+
 #ifdef __unix__
 #include <sys/types.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <sys/stat.h>
 #include <aio.h>
+#include <errno.h>
+#include <stdbool.h>
 
 
 typedef uint8_t BYTE;

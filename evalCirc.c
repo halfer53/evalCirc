@@ -11,7 +11,6 @@
 #include <stdbool.h>
 #include <assert.h>
 
-#include "bpw_linux.h"
 #include "EvalCircuit.h"
 #include "evalCirc.h"
 #include "getGate.h"
